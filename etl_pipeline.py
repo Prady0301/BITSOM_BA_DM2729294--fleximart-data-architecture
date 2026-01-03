@@ -60,10 +60,16 @@ def extract_transform_load():
         df_cust.drop_duplicates(subset=['customer_id'], inplace=True)
         metrics["customers"]["duplicates"] = initial_c - len(df_cust)
         
-        # 2. Missing Values (Emails)
-        before_missing_c = len(df_cust)
-        df_cust.dropna(subset=['email'], inplace=True)
-        metrics["customers"]["missing"] = before_missing_c - len(df_cust)
+        # 2. Handle Missing Emails -> "Unknown" Strategy
+        # Count them first
+        missing_mask = df_cust['email'].isnull()
+        metrics["customers"]["missing"] = missing_mask.sum()
+        
+        # Fill with unique unknown string: "unknown_C003"
+        # We MUST append ID because the DB 'email' column is UNIQUE. 
+        # If we just used "Unknown", only 1 customer would save.
+        df_cust.loc[missing_mask, 'email'] = 'unknown_' + df_cust.loc[missing_mask, 'customer_id']
+    
 
         # Clean fields
         df_cust['phone'] = df_cust['phone'].apply(clean_phone)
@@ -72,18 +78,22 @@ def extract_transform_load():
         
         metrics["customers"]["loaded"] = len(df_cust)
 
-        # --- B. Products ---
-        # 1. Duplicates (Assuming product_id should be unique)
+        # --- B. PRODUCTS ---
+        # 1. Cleaning ID Fields
+        df_prod['product_id'] = df_prod['product_id'].astype(str).str.strip()
+
+        # 2. Deduplicate
         initial_p = len(df_prod)
         df_prod.drop_duplicates(subset=['product_id'], inplace=True)
         metrics["products"]["duplicates"] = initial_p - len(df_prod)
 
-        # 2. Missing Values (Price)
-        before_missing_p = len(df_prod)
-        df_prod.dropna(subset=['price'], inplace=True)
-        metrics["products"]["missing"] = before_missing_p - len(df_prod)
+        # 3. Handle Missing Prices -> Fill with Median
+        missing_price_mask = df_prod['price'].isnull()
+        metrics["products"]["missing"] = missing_price_mask.sum()
+        median_price = df_prod['price'].median()
+        df_prod['price'] = df_prod['price'].fillna(median_price)
         
-        # Clean fields
+        # 4. Other Cleaning
         df_prod['stock_quantity'] = df_prod['stock_quantity'].fillna(0)
         df_prod['category'] = df_prod['category'].str.title().str.strip()
         df_prod['db_id'] = df_prod['product_id'].apply(lambda x: int(re.sub(r'\D', '', str(x))))
